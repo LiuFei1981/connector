@@ -1,0 +1,49 @@
+# Service Configuration Example with Redis Service Discovery
+
+target:
+  app_name: "connector.service"
+  region: "us-east-1"
+
+namespace:
+  ns_id: ""
+  ns_name: "default"
+
+service:
+  sv_id: ""
+  sv_name: "my-grpc-service"
+  sv_discovery_use_sqs_sns: false
+  sv_tracer_use_xray: false
+  sv_logger_use_sqs: false
+
+instance:
+  instance_favor_public_ip: false
+  instance_port: 50051
+  instance_version: "v1.0.0"
+  instance_prefix: "ms-"
+  initial_unhealthy: false
+  instance_id: ""
+  sd_timeout: 5
+  internal_health_frequency: 5
+  auto_deregister_prior: true
+
+grpc:
+  connection_timeout: 15
+  keepalive_inactive_ping_time_trigger: 120
+  keepalive_inactive_ping_timeout: 20
+  keepalive_permit_without_stream: true
+  max_concurrent_streams: 100
+  rate_limit_per_second: 1000
+
+# Redis 服务发现配置
+redis:
+  enabled: true                                    # 启用 Redis 服务发现
+  endpoints:                                        # Redis 端点列表
+    - "localhost:6379"
+    #- "redis-1:6379"
+    #- "redis-2:6379"
+  password: ""                                      # Redis 密码（如果需要）
+  db: 0                                             # Redis 数据库编号
+  heartbeat_interval: 30                            # 心跳间隔（秒）
+  instance_ttl: 35                                  # 实例过期时间（秒）
+  service_discovery_prefix: "grpc:services"         # Redis key 前缀
+

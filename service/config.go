@@ -40,6 +40,7 @@ type config struct {
 	SvcCreateData serviceAutoCreate `mapstructure:"service_auto_create"`
 	Instance      instanceData      `mapstructure:"instance"`
 	Grpc          grpcData          `mapstructure:"grpc"`
+	Redis         redisData         `mapstructure:"redis"`
 }
 
 type targetData struct {
@@ -125,6 +126,17 @@ type grpcData struct {
 	MaxConcurrentStreams             uint   `mapstructure:"max_concurrent_streams"`
 	NumStreamWorkers                 uint   `mapstructure:"num_stream_workers"`
 	RateLimitPerSecond               uint   `mapstructure:"rate_limit_per_second"`
+}
+
+type redisData struct {
+	Enabled                bool   `mapstructure:"enabled"`
+	ReadEndpoint           string `mapstructure:"read_endpoint"`
+	WriteEndpoint          string `mapstructure:"write_endpoint"`
+	Password               string `mapstructure:"password"`
+	DB                     int    `mapstructure:"db"`
+	HeartbeatInterval      uint   `mapstructure:"heartbeat_interval"`       // 心跳间隔(秒),默认30
+	InstanceTTL            uint   `mapstructure:"instance_ttl"`             // 实例过期时间(秒),默认35
+	ServiceDiscoveryPrefix string `mapstructure:"service_discovery_prefix"` // Redis key前缀,默认"grpc:services"
 }
 
 func (c *config) SetTargetAppName(s string) {
@@ -558,6 +570,62 @@ func (c *config) SetRateLimitPerSecond(i uint) {
 	}
 }
 
+func (c *config) SetRedisEnabled(b bool) {
+	if c._v != nil {
+		c._v.Set("redis.enabled", b)
+		c.Redis.Enabled = b
+	}
+}
+
+func (c *config) SetRedisReadEndpoint(readEndpoint string) {
+	if c._v != nil {
+		c._v.Set("redis.read_endpoint", readEndpoint)
+		c.Redis.ReadEndpoint = readEndpoint
+	}
+}
+
+func (c *config) SetRedisWriteEndpoint(writeEndpoint string) {
+	if c._v != nil {
+		c._v.Set("redis.write_endpoint", writeEndpoint)
+		c.Redis.WriteEndpoint = writeEndpoint
+	}
+}
+
+func (c *config) SetRedisPassword(s string) {
+	if c._v != nil {
+		c._v.Set("redis.password", s)
+		c.Redis.Password = s
+	}
+}
+
+func (c *config) SetRedisDB(i int) {
+	if c._v != nil {
+		c._v.Set("redis.db", i)
+		c.Redis.DB = i
+	}
+}
+
+func (c *config) SetRedisHeartbeatInterval(i uint) {
+	if c._v != nil {
+		c._v.Set("redis.heartbeat_interval", i)
+		c.Redis.HeartbeatInterval = i
+	}
+}
+
+func (c *config) SetRedisInstanceTTL(i uint) {
+	if c._v != nil {
+		c._v.Set("redis.instance_ttl", i)
+		c.Redis.InstanceTTL = i
+	}
+}
+
+func (c *config) SetRedisServiceDiscoveryPrefix(s string) {
+	if c._v != nil {
+		c._v.Set("redis.service_discovery_prefix", s)
+		c.Redis.ServiceDiscoveryPrefix = s
+	}
+}
+
 // Read will load config settings from disk.
 // FIX #2: Builds into local variables first and only overwrites c._v and data fields
 // on success, so a failed Read() doesn't destroy previously valid state.
@@ -644,7 +712,15 @@ func (c *config) Read() error {
 		"grpc.max_send_msg_size", 0).Default(
 		"grpc.max_concurrent_streams", 0).Default(
 		"grpc.num_stream_workers", 0).Default(
-		"grpc.rate_limit_per_second", 0)
+		"grpc.rate_limit_per_second", 0).Default(
+		"redis.enabled", false).Default(
+		"redis.read_endpoint", "localhost:6379").Default(
+		"redis.write_endpoint", "localhost:6379").Default(
+		"redis.password", "").Default(
+		"redis.db", 0).Default(
+		"redis.heartbeat_interval", 30).Default(
+		"redis.instance_ttl", 35).Default(
+		"redis.service_discovery_prefix", "grpc:services")
 
 	if ok, err := v.Init(); err != nil {
 		return err
@@ -675,6 +751,7 @@ func (c *config) Read() error {
 	c.SvcCreateData = tempCfg.SvcCreateData
 	c.Instance = tempCfg.Instance
 	c.Grpc = tempCfg.Grpc
+	c.Redis = tempCfg.Redis
 
 	return nil
 }

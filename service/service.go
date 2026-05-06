@@ -46,7 +46,6 @@ import (
 	"github.com/aldelo/common/wrapper/sqs"
 	"github.com/aldelo/common/wrapper/xray"
 	"github.com/aldelo/connector/adapters/health"
-	"github.com/aldelo/connector/internal/safego"
 	"github.com/aldelo/connector/adapters/notification"
 	"github.com/aldelo/connector/adapters/queue"
 	"github.com/aldelo/connector/adapters/ratelimiter"
@@ -54,6 +53,7 @@ import (
 	"github.com/aldelo/connector/adapters/registry"
 	"github.com/aldelo/connector/adapters/registry/sdoperationstatus"
 	"github.com/aldelo/connector/adapters/tracer"
+	"github.com/aldelo/connector/internal/safego"
 	"github.com/aldelo/connector/service/grpc_recovery"
 	ws "github.com/aldelo/connector/webserver"
 	sns2 "github.com/aws/aws-sdk-go/service/sns"
@@ -350,6 +350,9 @@ type Service struct {
 	_sd  *cloudmap.CloudMap
 	_sqs *sqs.SQS
 	_sns *sns.SNS
+
+	// redis service registry
+	_redisRegistry *RedisServiceRegistry
 
 	// instantiated internal objects
 	_grpcServer   *grpc.Server
@@ -1769,10 +1772,10 @@ func (s *Service) publishToSNS(topicArn string, actionName string, message strin
 func (s *Service) registerSd(ip string, port uint) error {
 	s._mu.RLock()
 	cfg := s._config
-	sd := s._sd
+	//sd := s._sd
 	s._mu.RUnlock()
 
-	if cfg == nil || sd == nil {
+	if cfg == nil {
 		return nil
 	}
 
@@ -1786,6 +1789,25 @@ func (s *Service) registerSd(ip string, port uint) error {
 			}
 		}
 		return fmt.Errorf("Register Instance Failed: %w", err)
+	}
+
+	// 启动 Redis 服务注册（如果启用）
+	if cfg.Redis.Enabled {
+		redisRegistry, err := NewRedisServiceRegistry(&cfg.Redis, cfg.Service.Name, ip, port)
+		if err != nil {
+			log.Printf("!!! Redis Service Registry Init Failed: %v !!!", err)
+			log.Println("!!! Service will continue with AWS Cloud Map only !!!")
+		} else {
+			if err := redisRegistry.Start(); err != nil {
+				log.Printf("!!! Redis Service Registry Start Failed: %v !!!", err)
+				log.Println("!!! Service will continue with AWS Cloud Map only !!!")
+			} else {
+				s._mu.Lock()
+				s._redisRegistry = redisRegistry
+				s._mu.Unlock()
+				log.Println("=== Redis Service Registry Started Successfully ===")
+			}
+		}
 	}
 
 	return nil
@@ -2616,7 +2638,17 @@ func (s *Service) doDeregisterInstance() error {
 	s._mu.RLock()
 	sd := s._sd
 	cfg := s._config
+	redisRegistry := s._redisRegistry
 	s._mu.RUnlock()
+
+	// 停止 Redis 服务注册（如果启用）
+	if redisRegistry != nil {
+		if err := redisRegistry.Stop(); err != nil {
+			log.Printf("!!! Redis Service Registry Stop Failed: %v !!!", err)
+		} else {
+			log.Println("=== Redis Service Registry Stopped Successfully ===")
+		}
+	}
 
 	if sd == nil || cfg == nil || util.LenTrim(cfg.Service.Id) == 0 || util.LenTrim(cfg.Instance.Id) == 0 {
 		return nil

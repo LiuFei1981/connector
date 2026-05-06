@@ -1,0 +1,35 @@
+# Client Configuration Example with Redis Service Discovery
+
+target:
+  app_name: "connector.client"
+  service_discovery_type: "srv"              # 服务发现类型: srv, a, direct
+  direct_connect_ip_port: ""                 # direct 模式使用
+  service_name: "my-grpc-service"            # 要连接的服务名称
+  namespace_name: "default"
+  region: "us-east-1"
+  instance_version: ""
+  instance_port: 0
+  sd_timeout: 5
+  sd_endpoint_cache_expires: 300
+  sd_instance_max_result: 100
+  trace_use_xray: false
+
+grpc:
+  dial_blocking_mode: true
+  use_load_balancer: true
+  use_health_check: true
+  dial_min_connect_timeout: 5
+  keepalive_inactive_ping_time_trigger: 120
+  keepalive_inactive_ping_timeout: 20
+  keepalive_permit_without_stream: true
+  circuit_breaker_enabled: false
+
+# Redis 服务发现配置（备用方案）
+redis:
+  enabled: true                              # 启用 Redis 服务发现
+  endpoints:                                  # Redis 端点列表
+    - "localhost:6379"
+  password: ""                                # Redis 密码
+  db: 0                                       # Redis 数据库编号
+  instance_ttl: 45                            # 实例过期时间（秒），应该大于服务端的 heartbeat_interval
+
