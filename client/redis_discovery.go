@@ -45,18 +45,17 @@ type RedisInstanceInfo struct {
 }
 
 // NewRedisServiceDiscovery 创建 Redis 服务发现客户端
-func NewRedisServiceDiscovery(endpoints []string, password string, db int, serviceName string, instanceTTL uint) (*RedisServiceDiscovery, error) {
-	if len(endpoints) == 0 {
+func NewRedisServiceDiscovery(writeEndpoint, readEndpoint string, password string, db int, serviceName string, instanceTTL uint) (*RedisServiceDiscovery, error) {
+	if len(writeEndpoint) == 0 {
 		return nil, fmt.Errorf("redis endpoints not configured")
 	}
 
-	writerEndpoint := endpoints[0]
-	readerEndpoint := endpoints[0]
-
-	// 如果有多个端点，第二个作为 reader
-	if len(endpoints) > 1 {
-		readerEndpoint = endpoints[1]
+	if len(readEndpoint) == 0 {
+		readEndpoint = writeEndpoint
 	}
+
+	writerEndpoint := writeEndpoint
+	readerEndpoint := readEndpoint
 
 	redisClient := &redis.Redis{
 		AwsRedisWriterEndpoint: writerEndpoint,

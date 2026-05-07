@@ -56,7 +56,7 @@ func NewRedisServiceRegistry(cfg *redisData, serviceName string, ip string, port
 	}
 
 	if len(cfg.ReadEndpoint) == 0 {
-		return nil, fmt.Errorf("redis read endpoints not configured")
+		cfg.ReadEndpoint = cfg.WriteEndpoint
 	}
 
 	// 创建 Redis 客户端
@@ -185,7 +185,7 @@ func (r *RedisServiceRegistry) register() error {
 	}
 
 	for instanceID, readData := range result {
-		
+
 		println(fmt.Sprintf("reids data key:  instanceid:  data:", key, instanceID, readData))
 	}
 	return nil

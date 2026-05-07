@@ -89,11 +89,12 @@ type grpcData struct {
 }
 
 type redisData struct {
-	Enabled     bool     `mapstructure:"enabled"`
-	Endpoints   []string `mapstructure:"endpoints"`
-	Password    string   `mapstructure:"password"`
-	DB          int      `mapstructure:"db"`
-	InstanceTTL uint     `mapstructure:"instance_ttl"` // 实例过期时间(秒),默认45
+	Enabled       bool   `mapstructure:"enabled"`
+	ReadEndpoint  string `mapstructure:"read_endpoint"`
+	WriteEndpoint string `mapstructure:"write_endpoint"`
+	Password      string `mapstructure:"password"`
+	DB            int    `mapstructure:"db"`
+	InstanceTTL   uint   `mapstructure:"instance_ttl"` // 实例过期时间(秒),默认45
 }
 
 func (c *config) SetTargetAppName(s string) {
@@ -362,10 +363,17 @@ func (c *config) SetRedisEnabled(b bool) {
 	}
 }
 
-func (c *config) SetRedisEndpoints(endpoints []string) {
+func (c *config) SetRedisReadEndpoint(readEndpoint string) {
 	if c._v != nil {
-		c._v.Set("redis.endpoints", endpoints)
-		c.Redis.Endpoints = endpoints
+		c._v.Set("redis.read_endpoint", readEndpoint)
+		c.Redis.ReadEndpoint = readEndpoint
+	}
+}
+
+func (c *config) SetRedisWriteEndpoint(writeEndpoint string) {
+	if c._v != nil {
+		c._v.Set("redis.write_endpoint", writeEndpoint)
+		c.Redis.WriteEndpoint = writeEndpoint
 	}
 }
 
@@ -451,10 +459,13 @@ func (c *config) Read() error {
 		"grpc.circuit_breaker_error_percent_threshold", 50).Default(
 		"grpc.circuit_breaker_logger_enabled", true).Default(
 		"redis.enabled", false).Default(
-		"redis.endpoints", []string{}).Default(
+		"redis.read_endpoint", "localhost:6379").Default(
+		"redis.write_endpoint", "localhost:6379").Default(
 		"redis.password", "").Default(
 		"redis.db", 0).Default(
-		"redis.instance_ttl", 45)
+		"redis.heartbeat_interval", 30).Default(
+		"redis.instance_ttl", 35).Default(
+		"redis.service_discovery_prefix", "grpc:services")
 
 	if ok, err := v.Init(); err != nil {
 		return err
