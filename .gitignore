@@ -1,0 +1,135 @@
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
+# Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
+
+# User-specific stuff
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
+
+# Generated files
+.idea/**/contentModel.xml
+
+# Sensitive or high-churn files
+.idea/**/dataSources/
+.idea/**/dataSources.ids
+.idea/**/dataSources.local.xml
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+.idea/**/dbnavigator.xml
+.idea/
+.claude/
+
+# Gradle
+.idea/**/gradle.xml
+.idea/**/libraries
+
+# Gradle and Maven with auto-import
+# When using Gradle or Maven with auto-import, you should exclude module files,
+# since they will be recreated, and may cause churn.  Uncomment if using
+# auto-import.
+.idea/artifacts
+.idea/compiler.xml
+.idea/jarRepositories.xml
+.idea/modules.xml
+.idea/workspace.xml
+.idea/vcs.xml
+.idea/*.iml
+.idea/modules
+*.iml
+*.ipr
+
+.DS_Store
+service/service.yaml
+client/client.yaml
+client/testclient.log
+client/testclient-internal-err.log
+service/testservice.log
+service/testservice-internal-err.log
+webserver/webserver.yaml
+build/openssl-pem/keys/ca/ca_cert.pem
+build/openssl-pem/keys/ca/ca_cert.srl
+build/openssl-pem/keys/ca/private/ca_key.pem
+build/openssl-pem/keys/client/client.csr
+build/openssl-pem/keys/client/client_cert.pem
+build/openssl-pem/keys/client/private/client_key.pem
+build/openssl-pem/keys/server/server.csr
+build/openssl-pem/keys/server/server_cert.pem
+build/openssl-pem/keys/server/private/server_key.pem
+build/openssl-pem/test-pem.sh
+example/cmd/grpcclient/endpoint/client.yaml
+example/cmd/grpcclient/endpoint/service-1.yaml
+example/cmd/grpcclient/endpoint/service-2.yaml
+example/cmd/grpcclient/endpoint/service-1-notifier-client.yaml
+example/cmd/grpcclient/grpcclient
+example/cmd/grpcserver/service.yaml
+example/cmd/grpcclient/x509/ca_cert.pem
+example/cmd/grpcclient/x509/client_cert.pem
+example/cmd/grpcclient/x509/client_key.pem
+example/cmd/grpcserver/x509/ca_cert.pem
+example/cmd/grpcserver/x509/server_cert.pem
+example/cmd/grpcserver/x509/server_key.pem
+example/cmd/grpcserver/backup.yaml
+example/cmd/grpcserver/grpcserver
+example/cmd/grpcclient/ExampleClient-internal-err.log
+example/cmd/grpcclient/ExampleClient.log
+example/cmd/grpcclient/ExampleClient-Notifier-Client-internal-err.log
+example/cmd/grpcclient/ExampleClient-Notifier-Client.log
+example/cmd/webserver/webserver
+example/cmd/grpcnotifier/grpcnotifier
+example/cmd/grpcnotifier/notifierserver-linux
+example/cmd/grpcnotifier/build.sh
+example/cmd/grpcnotifier/notifierserver.service
+example/cmd/grpcnotifier/notifier-grpcserver.yaml
+example/cmd/grpcnotifier/notifier-webserver.yaml
+example/cmd/grpcnotifier/notifier-config.yaml
+example/cmd/grpcnotifier/x509/ca_cert.pem
+example/cmd/grpcnotifier/x509/client_cert.pem
+example/cmd/grpcnotifier/x509/client_key.pem
+example/cmd/grpcnotifier/x509/server_cert.pem
+example/cmd/grpcnotifier/x509/server_key.pem
+example/cmd/snsgateway/gateway-config.yaml
+example/cmd/snsgateway/gateway-webserver.yaml
+example/cmd/snsgateway/build.sh
+example/cmd/snsgateway/x509/ca_cert.pem
+example/cmd/snsgateway/snsgateway.service
+example/cmd/snsgateway/snsgateway
+example/cmd/snsgateway/snsgateway-linux
+example/cmd/tcpserver/tcpserver
+example/cmd/tcpclient/tcpclient
+
+# CMake
+cmake-build-*/
+
+# Mongo Explorer plugin
+.idea/**/mongoSettings.xml
+
+# File-based project format
+*.iws
+
+# IntelliJ
+out/
+
+# mpeltonen/sbt-idea plugin
+.idea_modules/
+
+# JIRA plugin
+atlassian-ide-plugin.xml
+
+# Cursive Clojure plugin
+.idea/replstate.xml
+
+# Crashlytics plugin (for Android Studio and IntelliJ)
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+fabric.properties
+
+# Editor-based Rest Client
+.idea/httpRequests
+
+# Android studio 3.1+ serialized cache file
+.idea/caches/build_file_checksums.ser
+Icon

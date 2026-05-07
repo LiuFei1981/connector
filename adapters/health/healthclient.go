@@ -1,0 +1,176 @@
+package health
+
+/*
+ * Copyright 2020-2026 Aldelo, LP
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	util "github.com/aldelo/common"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+
+	"strings"
+)
+
+// HealthClient wraps the gRPC health check client with timeout handling
+// and error categorization for better diagnostics.
+type HealthClient struct {
+	hcClient grpc_health_v1.HealthClient
+}
+
+// NewHealthClient creates a new HealthClient that wraps the gRPC health check service.
+// Returns an error if the connection is nil.
+func NewHealthClient(conn *grpc.ClientConn) (*HealthClient, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("new health client failed: gRPC client connection is nil")
+	}
+
+	return &HealthClient{
+		hcClient: grpc_health_v1.NewHealthClient(conn),
+	}, nil
+}
+
+// Check performs a health check using the default context.Background().
+// Deprecated: Use CheckContext for better context propagation.
+func (h *HealthClient) Check(svcName string, timeoutDuration ...time.Duration) (grpc_health_v1.HealthCheckResponse_ServingStatus, error) {
+	return h.CheckContext(context.Background(), svcName, timeoutDuration...)
+}
+
+// CheckContext performs a health check with the given context for cancellation and timeout control.
+// The timeoutDuration parameter is optional:
+//   - If omitted, a default 5-second timeout is applied
+//   - If 0, no timeout is applied (use context for cancellation only)
+//   - If negative, returns an error
+//
+// Returns the serving status and any error encountered.
+func (h *HealthClient) CheckContext(ctx context.Context, svcName string, timeoutDuration ...time.Duration) (grpc_health_v1.HealthCheckResponse_ServingStatus, error) {
+	if h == nil { // guard nil receiver to avoid panic
+		return grpc_health_v1.HealthCheckResponse_UNKNOWN, fmt.Errorf("health check failed: HealthClient receiver is nil")
+	}
+
+	if h.hcClient == nil {
+		return grpc_health_v1.HealthCheckResponse_UNKNOWN, fmt.Errorf("health check failed: health check client is nil")
+	}
+
+	// reject multiple timeout arguments to avoid silent misuse.
+	if len(timeoutDuration) > 1 {
+		return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+			fmt.Errorf("health check failed: only one timeoutDuration argument is allowed (got %d)", len(timeoutDuration))
+	}
+
+	const defaultTimeout = 5 * time.Second // avoid indefinite hang
+
+	// track effective timeout for clearer error messages
+	effectiveTimeout := defaultTimeout
+	useTimeout := true
+	if len(timeoutDuration) > 0 {
+		switch t := timeoutDuration[0]; {
+		case t < 0:
+			return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+				fmt.Errorf("health check failed: invalid timeout %s (must be >= 0)", t)
+		case t == 0:
+			useTimeout = false // caller explicitly requested no timeout
+		default:
+			effectiveTimeout = t
+		}
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var (
+		childCtx context.Context
+		cancel   context.CancelFunc
+	)
+	if useTimeout {
+		childCtx, cancel = context.WithTimeout(ctx, effectiveTimeout)
+		defer cancel()
+	} else {
+		childCtx = ctx
+	}
+
+	// trim service name before use
+	trimmedSvc := strings.TrimSpace(svcName)
+
+	in := &grpc_health_v1.HealthCheckRequest{}
+	if util.LenTrim(trimmedSvc) > 0 {
+		in.Service = trimmedSvc
+	}
+
+	resp, err := h.hcClient.Check(childCtx, in)
+	if err != nil {
+		// classify gRPC status codes for accurate reporting
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.DeadlineExceeded:
+				if useTimeout {
+					return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+						fmt.Errorf("health check failed: timeout exceeded after %s: %w", effectiveTimeout, err)
+				}
+				// no-timeout call should not hit this unless server imposed its own deadline
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: server/transport deadline exceeded (%w)", err)
+			case codes.Canceled:
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: context canceled (%w)", err)
+			case codes.Unavailable:
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: service unavailable (%w)", err)
+			case codes.NotFound:
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: service not found (%w)", err)
+			case codes.Unimplemented:
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: health service unimplemented on server (%w)", err)
+			default:
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: call health server error [%s] (%w)", st.Code(), err)
+			}
+		}
+
+		// distinguish cancellation from timeout in non-status errors
+		if errors.Is(err, context.DeadlineExceeded) {
+			if useTimeout {
+				return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+					fmt.Errorf("health check failed: timeout exceeded after %s: %w", effectiveTimeout, err)
+			}
+			return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+				fmt.Errorf("health check failed: server/transport deadline exceeded (%w)", err)
+		}
+
+		// report caller/transport cancellation accurately
+		if errors.Is(err, context.Canceled) {
+			return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+				fmt.Errorf("health check failed: context canceled (%w)", err)
+		}
+
+		return grpc_health_v1.HealthCheckResponse_UNKNOWN,
+			fmt.Errorf("health check failed: call health server error (%w)", err)
+	}
+
+	if resp == nil {
+		return grpc_health_v1.HealthCheckResponse_UNKNOWN, fmt.Errorf("health check failed: health server response is nil")
+	}
+
+	return resp.Status, nil
+}

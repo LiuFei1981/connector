@@ -1,0 +1,267 @@
+package plugins
+
+/*
+ * Copyright 2020-2026 Aldelo, LP
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	util "github.com/aldelo/common"
+	"github.com/aldelo/common/wrapper/hystrixgo"
+	data "github.com/aldelo/common/wrapper/zap"
+
+	"sync"
+)
+
+// HystrixGoPlugin each instance represents a specific command
+// circuit breaker is tracking against multiple commands
+// use a map to track all commands and invoke circuit breaker per command
+//
+// hystrixGo must not be set to nil or swapped after initialization unless
+// the plugin is discarded and not currently in service. Methods are concurrency-safe,
+// but best practice is one plugin per command lifecycle.
+type HystrixGoPlugin struct {
+	hystrixGo *hystrixgo.CircuitBreaker // unexported: no external consumers access this directly
+	mu        sync.RWMutex
+}
+
+// NewHystrixGoPlugin creates a hystrixgo plugin struct object
+// this plugin implements the CircuitBreakerIFace interface
+//
+// Config Properties:
+//  1. commandName = (required) name of the circuit breaker command
+//  1. Timeout = (optional) how long to wait for command to complete, in milliseconds, default = 1000
+//  2. MaxConcurrentRequests = (optional) how many commands of the same type can run at the same time, default = 10
+//  3. RequestVolumeThreshold = (optional) minimum number of requests needed before a circuit can be tripped due to health, default = 20
+//  4. SleepWindow = (optional) how long to wait after a circuit opens before testing for recovery, in milliseconds, default = 5000
+//  5. ErrorPercentThreshold = (optional) causes circuits to open once the rolling measure of errors exceeds this percent of requests, default = 50
+//  6. Logger = (optional) indicates the logger that will be used in the Hystrix package, nil = logs nothing
+func NewHystrixGoPlugin(commandName string,
+	timeout int,
+	maxConcurrentRequests int,
+	requestVolumeThreshold int,
+	sleepWindow int,
+	errorPercentThreshold int,
+	logger *data.ZapLog) (*HystrixGoPlugin, error) {
+
+	// validate required
+	if util.LenTrim(commandName) == 0 {
+		return nil, fmt.Errorf("HystrixGo Circuit Breaker Command Name is Required")
+	}
+
+	// assign defaults for zero values
+	if timeout <= 0 {
+		timeout = 1000
+	}
+	if maxConcurrentRequests <= 0 {
+		maxConcurrentRequests = 10
+	}
+	if requestVolumeThreshold <= 0 {
+		requestVolumeThreshold = 20
+	}
+	if sleepWindow <= 0 {
+		sleepWindow = 5000
+	}
+	if errorPercentThreshold <= 0 {
+		errorPercentThreshold = 50
+	}
+
+	// create plugin
+	p := &HystrixGoPlugin{
+		hystrixGo: &hystrixgo.CircuitBreaker{
+			CommandName:            commandName,
+			TimeOut:                timeout,
+			MaxConcurrentRequests:  maxConcurrentRequests,
+			RequestVolumeThreshold: requestVolumeThreshold,
+			SleepWindow:            sleepWindow,
+			ErrorPercentThreshold:  errorPercentThreshold,
+			Logger:                 logger,
+			DisableCircuitBreaker:  false,
+		},
+	}
+
+	// invoke hystrixgo init
+	if err := p.hystrixGo.Init(); err != nil {
+		return nil, fmt.Errorf("failed to initialize HystrixGo: %w", err) // preserve context
+	}
+
+	// return plugin
+	return p, nil
+}
+
+// Exec offers both async and sync execution of circuit breaker action
+// Note: fallbackFn may be nil if no fallback logic is required
+//
+// runFn = function to be executed under circuit breaker
+// fallbackFn = function to be executed if runFn fails (can be nil)
+// dataIn = input parameter value for runFn and fallbackFn
+func (p *HystrixGoPlugin) Exec(async bool,
+	runFn func(dataIn interface{}, ctx ...context.Context) (dataOut interface{}, err error),
+	fallbackFn func(dataIn interface{}, errIn error, ctx ...context.Context) (dataOut interface{}, err error),
+	dataIn interface{}) (interface{}, error) {
+
+	p.mu.RLock()
+	hystrixGo := p.hystrixGo
+
+	if hystrixGo == nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("HystrixGo Object Not Initialized")
+	}
+
+	if runFn == nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("HystrixGo Exec runFn Function Is Nil")
+	}
+
+	p.mu.RUnlock()
+
+	if async {
+		return hystrixGo.Go(runFn, fallbackFn, dataIn)
+	}
+
+	return hystrixGo.Do(runFn, fallbackFn, dataIn)
+}
+
+// ExecWithContext offers both async and sync execution of circuit breaker action with context
+// Note: fallbackFn may be nil if no fallback logic is required
+//
+// runFn = function to be executed under circuit breaker
+// fallbackFn = function to be executed if runFn fails
+// dataIn = input parameter value for runFn and fallbackFn
+func (p *HystrixGoPlugin) ExecWithContext(async bool,
+	ctx context.Context,
+	runFn func(dataIn interface{}, ctx ...context.Context) (dataOut interface{}, err error),
+	fallbackFn func(dataIn interface{}, errIn error, ctx ...context.Context) (dataOut interface{}, err error),
+	dataIn interface{}) (interface{}, error) {
+
+	p.mu.RLock()
+	hystrixGo := p.hystrixGo
+
+	if hystrixGo == nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("HystrixGo Object Not Initialized")
+	}
+
+	if ctx == nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("HystrixGo ExecWithContext ctx Context Is Nil")
+	}
+
+	if runFn == nil {
+		p.mu.RUnlock()
+		return nil, fmt.Errorf("HystrixGo ExecWithContext runFn Function Is Nil")
+	}
+
+	// surface the original context error (deadline/cancel) instead of a generic message
+	if err := ctx.Err(); err != nil {
+		p.mu.RUnlock()
+		if fallbackFn != nil {
+			return fallbackFn(dataIn, err, ctx)
+		}
+		return nil, err
+	}
+
+	p.mu.RUnlock()
+
+	if async {
+		return hystrixGo.GoC(ctx, runFn, fallbackFn, dataIn)
+	}
+
+	return hystrixGo.DoC(ctx, runFn, fallbackFn, dataIn)
+}
+
+// Reset will cause circuit breaker to reset all circuits from memory
+func (p *HystrixGoPlugin) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	hystrixGo := p.hystrixGo
+
+	if hystrixGo != nil {
+		hystrixGo.FlushAll()
+	}
+}
+
+// Update will update circuit breaker internal config
+//  1. Timeout = (optional) how long to wait for command to complete, in milliseconds, default = 1000
+//  2. MaxConcurrentRequests = (optional) how many commands of the same type can run at the same time, default = 10
+//  3. RequestVolumeThreshold = (optional) minimum number of requests needed before a circuit can be tripped due to health, default = 20
+//  4. SleepWindow = (optional) how long to wait after a circuit opens before testing for recovery, in milliseconds, default = 5000
+//  5. ErrorPercentThreshold = (optional) causes circuits to open once the rolling measure of errors exceeds this percent of requests, default = 50
+//  6. Logger = (optional) indicates the logger that will be used in the Hystrix package, nil = logs nothing
+func (p *HystrixGoPlugin) Update(timeout int,
+	maxConcurrentRequests int,
+	requestVolumeThreshold int,
+	sleepWindow int,
+	errorPercentThreshold int,
+	logger *data.ZapLog) error {
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	hystrixGo := p.hystrixGo
+	if hystrixGo == nil {
+		return fmt.Errorf("HystrixGo Object Not Initialized")
+	}
+
+	// keep lock while mutating shared config to avoid data races with Exec/Hystrix usage
+	if timeout > 0 {
+		hystrixGo.TimeOut = timeout
+	}
+	if maxConcurrentRequests > 0 {
+		hystrixGo.MaxConcurrentRequests = maxConcurrentRequests
+	}
+	if requestVolumeThreshold > 0 {
+		hystrixGo.RequestVolumeThreshold = requestVolumeThreshold
+	}
+	if sleepWindow > 0 {
+		hystrixGo.SleepWindow = sleepWindow
+	}
+	if errorPercentThreshold > 0 {
+		hystrixGo.ErrorPercentThreshold = errorPercentThreshold
+	}
+
+	// allow explicitly disabling logging (nil => no logs) per documented contract
+	hystrixGo.Logger = logger
+
+	// These functions presumably handle their own concurrency
+	hystrixGo.UpdateConfig()
+	hystrixGo.UpdateLogger()
+
+	return nil
+}
+
+// Disable will disable circuit breaker services
+// true = disable; false = re-engage circuit breaker service
+func (p *HystrixGoPlugin) Disable(b bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	hystrixGo := p.hystrixGo
+	if hystrixGo == nil {
+		log.Printf("Warning: Cannot disable circuit breaker - HystrixGo is nil")
+		return
+	}
+
+	hystrixGo.DisableCircuitBreaker = b
+	if b {
+		log.Printf("Circuit breaker %s disabled", hystrixGo.CommandName)
+	} else {
+		log.Printf("Circuit breaker %s enabled", hystrixGo.CommandName)
+	}
+}

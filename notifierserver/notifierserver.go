@@ -1,0 +1,312 @@
+package notifierserver
+
+/*
+ * Copyright 2020-2023 Aldelo, LP
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+=== PURPOSE ===
+1) notifierServer implements impl.NotifierImpl interface
+2) notifierServer is to be used by a cmd gRPC daemon where it acts as an independent service host
+3) notifierServer exists because aws SNS http/s callback do not support private ip endpoints,
+	therefore, if we need to enable gRPC clients subscribe to an aws SNS topic, with an http callback to a private IP endpoint,
+	we need to comprise a set of services so that SNS can callback to a public notifier gateway endpoint (likely behind ELB),
+	and then such notifier gateway routes the callback data to the notifier server, where notifier server is connected to the gRPC clients via server stream,
+	ultimately allowing the gRPC clients receive the callback that would normally not be possible since it lives within private IP scope
+4) notifierServer is a gRPC service host, likely one or more running on EC2, or ECS, or other containerized deployment strategy within the aws vpc region
+5) notifierServer can be either public or private, depending on target gRPC client needs, notifierServer configuration always is defined with its upstream gateway url
+6) notifierServer exposes gRPC services so that it enables gRPC clients to Subscribe or Unsubscribe intended SNS topic,
+	so that when callback occurs, such callback data is routed to the gRPC client
+7) notifierServer also has the ability to broadcast data to all its connected gRPC clients, when such broadcast request is received by the notifierServer itself
+8) notifierServer uses aws DynamoDB as its backend data store, so that it can store its own server url info to the data store, for Notifier Gateway to discover via Server Key,
+	note, Server Key is submitted during SNS Topic subscription, so during callback by SNS, the server key is returned in path,
+	so that using such server key, we can find the server url from DynamoDB data store
+9) topology of the notification system is:
+	a) gRPC Clients, uses gRPC Notifier Client wrapper, to facilitate the notification service participation; gRPC Clients can be private or public IP scope
+	b) gRPC Notifier Client wrapper, connects to one of, gRPC Notifier Server, where gRPC Notifier Server endpoints discovered via service discovery;
+	c) gRPC Notifier Server, provides SNS Topic Subscribe / Unsubscribe services, to gRPC Notifier Client wrapper; gRPC Notifier Server can be private or public IP scope
+	d) gRPC Notifier Server, provides Data Broadcast to connected gRPC Notifier Clients, as received from gRPC Notifier Gateway from time to time;
+	e) gRPC Notifier Server, automatically persists its own server url into DynamoDB during its lifecycle, so that Notifier Gateway can easily discover its url based on Server Key;
+	f) gRPC Notifier Server, when performing Subscribe to SNS Topic, uses the host defined Notifier Gateway URL;
+	g) gRPC Notifier Gateway, a REST API service, hosted under ELB on Public IP scope, acts as the router between SNS HTTP callback and the gRPC Notifier Server network;
+	h) SNS Topic HTTP Callback, will always be registered (subscribed) for callback to the gRPC Notifier Gateway;
+	i) where the SNS Topic HTTP Callback, will call gRPC Notifier Gateway REST API service, and upon it receiving the call, delegate to the gRPC Notifier Server for downstream push;
+	j) note that gRPC Notifier Server exposes a self hosted REST API endpoint for /snsrelay, and a pre-defined snsNotification struct;
+	k) so that gRPC Notifier Gateway has a standard method of invoking the routing process;
+	l) in essence, gRPC Client to Notifier Server is pure gRPC,
+		while Notifier Server also exposes HTTP REST API, so that Notifier Gateway can trigger when needed during callback,
+		where SNS Callback is always HTTP invocation to the Notifier Gateway REST API path.
+*/
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"sync"
+	"time"
+
+	util "github.com/aldelo/common"
+	"github.com/aldelo/common/wrapper/aws/awsregion"
+	ginw "github.com/aldelo/common/wrapper/gin"
+	"github.com/aldelo/common/wrapper/gin/ginbindtype"
+	"github.com/aldelo/common/wrapper/gin/ginhttpmethod"
+	"github.com/aldelo/connector/internal/safego"
+	"github.com/aldelo/connector/notifierserver/impl"
+	pb "github.com/aldelo/connector/notifierserver/proto"
+	"github.com/aldelo/connector/service"
+	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+)
+
+var (
+	notifierServer   *impl.NotifierImpl
+	notifierServerMu sync.RWMutex
+)
+
+type snsNotification struct {
+	Type             string `json:"Type"`
+	MessageId        string `json:"MessageId"`
+	TopicArn         string `json:"TopicArn"`
+	Subject          string `json:"Subject"`
+	Message          string `json:"Message"`
+	Timestamp        string `json:"Timestamp"`
+	SignatureVersion string `json:"SignatureVersion"`
+	Signature        string `json:"Signature"`
+	SigningCertURL   string `json:"SigningCertURL"`
+	UnsubscribeURL   string `json:"UnsubscribeURL"`
+}
+
+// NewNotifierServer info,
+// NOTE: notifier server grpc config should not favor public ip when deploy to aws, otherwise EC2 security groups cannot be used for inbound security permissions,
+//
+//	if notifier server is discovered via public ip, then inbound security group must be setup to indicate inbound ec2 ip address rather than its security groups
+func NewNotifierServer(appName string, configFileNameGrpcServer string, configFileNameWebServer string, configFileNameNotifier string, customConfigPath string) (*service.Service, error) {
+	ns := new(impl.NotifierImpl)
+
+	if err := ns.ReadConfig(appName, configFileNameNotifier, customConfigPath); err != nil {
+		return nil, fmt.Errorf("WARNING: Notifier-Config.yaml Not Ready: %s", err)
+	} else {
+		if util.LenTrim(ns.ConfigData.NotifierServerData.ServerKey) == 0 {
+			// FIX #1: SetServerKey now returns error — must check it
+			if err := ns.ConfigData.SetServerKey(util.NewULID()); err != nil {
+				return nil, fmt.Errorf("ERROR: Set Notifier Server Key Failed: %s", err)
+			}
+
+			if err := ns.ConfigData.Save(); err != nil {
+				return nil, fmt.Errorf("ERROR: Persist Notifier Server Key Failed: %s", err)
+			}
+		}
+	}
+
+	if err := ns.ConnectDataStore(); err != nil {
+		return nil, fmt.Errorf("WARNING: Notifier's DynamoDB Connection Failed: %s", err)
+	}
+
+	if err := ns.ConnectSNS(awsregion.GetAwsRegion(ns.ConfigData.NotifierServerData.SnsAwsRegion)); err != nil {
+		return nil, fmt.Errorf("WARNING: Notifier's SNS Connection Failed: %s", err)
+	}
+
+	svr := service.NewService(appName, configFileNameGrpcServer, customConfigPath, func(grpcServer *grpc.Server) {
+		pb.RegisterNotifierServiceServer(grpcServer, ns)
+	})
+
+	svr.WebServerConfig = &service.WebServerConfig{
+		AppName:        appName,
+		ConfigFileName: configFileNameWebServer,
+		// FIX #2: Pass customConfigPath through instead of hardcoding ""
+		CustomConfigPath: customConfigPath,
+		WebServerRoutes: map[string]*ginw.RouteDefinition{
+			"base": {
+				Routes: []*ginw.Route{
+					{
+						RelativePath:    "/snsrelay",
+						Method:          ginhttpmethod.POST,
+						Binding:         ginbindtype.BindJson,
+						BindingInputPtr: &snsNotification{},
+						Handler:         snsrelay,
+					},
+					{
+						RelativePath:    "/snsupdate/:topicArn",
+						Method:          ginhttpmethod.POST,
+						Binding:         ginbindtype.UNKNOWN,
+						BindingInputPtr: nil,
+						Handler:         snsupdate,
+					},
+				},
+				// A4-P6-F1: No CORS middleware on the SNS relay endpoint. SNS sends
+				// server-to-server HTTP callbacks — no browser is involved, so CORS
+				// headers serve no purpose and would only widen the attack surface.
+				CorsMiddleware: nil,
+			},
+		},
+	}
+
+	ns.WebServerLocalAddressFunc = svr.WebServerConfig.GetWebServerLocalAddress
+
+	// Publish fully-initialized server only after all init is complete
+	// to prevent races where other goroutines see a partially-initialized instance
+	notifierServerMu.Lock()
+	notifierServer = ns
+	notifierServerMu.Unlock()
+
+	// clean up prior sns subscriptions logged in config, upon initial launch
+	ns.UnsubscribeAllPriorSNSTopics()
+
+	return svr, nil
+}
+
+// UnsubscribeAllTopics will clean up by unsubscribing all subscriptionArns from Topic list in config,
+// this is call during notifier service shutdown to clean up
+func UnsubscribeAllTopics() {
+	notifierServerMu.RLock()
+	ns := notifierServer
+	notifierServerMu.RUnlock()
+
+	if ns != nil {
+		log.Println("UnsubscribeAllTopics Invoked")
+		ns.UnsubscribeAllPriorSNSTopics()
+	} else {
+		log.Println("UnsubscribeAllTopics Not Invoked Because notifierServer Object is Nil")
+	}
+}
+
+// Shutdown gracefully shuts down the notifier server
+func Shutdown(ctx context.Context) error {
+	notifierServerMu.RLock()
+	ns := notifierServer
+	notifierServerMu.RUnlock()
+
+	if ns != nil {
+		log.Println("Shutdown Invoked")
+		return ns.Shutdown(ctx)
+	} else {
+		log.Println("Shutdown Not Invoked Because notifierServer Object is Nil")
+		return nil
+	}
+}
+
+func snsrelay(c *gin.Context, bindingInputPtr interface{}) {
+	notifierServerMu.RLock()
+	ns := notifierServer
+	notifierServerMu.RUnlock()
+
+	if ns == nil {
+		c.String(412, "notifierServer Not Exist")
+		return
+	}
+
+	n, ok := bindingInputPtr.(*snsNotification)
+
+	// FIX #3: Original code did NOT return after failed assertion — execution continued
+	// with n == nil, causing a nil-pointer panic on n.Message, n.TopicArn, etc.
+	if !ok || n == nil {
+		c.String(412, "Assert SNS Notification Json Failed")
+		return
+	}
+
+	log.Println("Notifier Server SNS Relay Started...")
+
+	if util.LenTrim(n.Message) > 0 {
+		// A4-P6-F3: Intentional fire-and-forget via safeGo. The HTTP 200 is
+		// returned to AWS SNS *before* Broadcast completes. Trade-off:
+		//   - Pro: Sub-millisecond response to SNS avoids delivery timeouts
+		//     (SNS enforces a 15-second HTTP timeout on endpoints).
+		//   - Con: If Broadcast fails, the 200 has already been sent — SNS
+		//     considers the delivery successful and will NOT retry.
+		//   - Mitigation: Broadcast failures are logged at ERROR level below.
+		//     Operators should alert on "Notifier Server Relay SNS Message Failed"
+		//     log lines to detect silent delivery failures.
+		// Do NOT make this synchronous without accounting for the SNS timeout.
+		// CONN-R3-003 + CONN-R3-002: Use safeGo for panic isolation with debug.Stack
+		safego.Go("sns-relay", func() {
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			log.Println("~~~ Notifier Server Relaying SNS Message to TopicArn: " + n.TopicArn + " ~~~")
+
+			if _, err := ns.Broadcast(ctx, &pb.NotificationData{
+				Id:        n.MessageId,
+				Topic:     n.TopicArn,
+				Message:   n.Message,
+				Timestamp: n.Timestamp,
+			}); err != nil {
+				// broadcast error encountered
+				log.Println("!!! Notifier Server Relay SNS Message Failed: " + err.Error() + " !!!")
+			} else {
+				log.Println("+++ Notifier Server Relay SNS Message Success +++")
+			}
+		})
+	} else {
+		log.Println(">>> Notifier Server Skipped SNS Relay Because Message is Blank <<<")
+	}
+
+	log.Println("... Notifier Server SNS Relay Completed")
+
+	c.String(200, "SNS Relay Sent")
+}
+
+func snsupdate(c *gin.Context, bindingInputPtr interface{}) {
+	notifierServerMu.RLock()
+	ns := notifierServer
+	notifierServerMu.RUnlock()
+
+	if ns == nil {
+		c.String(412, "notifierServer Not Exist")
+		return
+	}
+
+	topicArn := c.Param("topicArn")
+
+	if util.LenTrim(topicArn) == 0 {
+		c.String(412, "SNS Update Requires TopicArn")
+		return
+	}
+
+	if c.Request == nil {
+		c.String(412, "SNS Update Requires Http Request Not Nil")
+		return
+	}
+
+	if c.Request.Body == nil {
+		c.String(412, "SNS Update Requires Http Request Body Not Nil")
+		return
+	}
+
+	// FIX: Limit body read to 1 KB to prevent memory exhaustion DoS.
+	// A subscription ARN is at most ~300 bytes; 1024 is generous.
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 1024))
+	if err != nil {
+		c.String(412, "SNS Update Failed to Read Http Request Body")
+		return
+	}
+
+	subscriptionArn := string(bodyBytes)
+
+	if util.LenTrim(subscriptionArn) == 0 {
+		c.String(412, "SNS Update Requires SubscriptionArn in Http Request Body")
+		return
+	}
+
+	if err := ns.UpdateSubscriptionArnToTopic(topicArn, subscriptionArn); err != nil {
+		c.String(412, err.Error())
+	} else {
+		c.Status(200)
+	}
+}
+
+// safeGo is provided by internal/safego.Go — see that package for the
+// full documentation.
