@@ -36,6 +36,7 @@ type config struct {
 	Queues queuesData `mapstructure:"queues"`
 	Topics topicsData `mapstructure:"topics"`
 	Grpc   grpcData   `mapstructure:"grpc"`
+	Redis  redisData  `mapstructure:"redis"`
 }
 
 type targetData struct {
@@ -85,6 +86,15 @@ type grpcData struct {
 	CircuitBreakerSleepWindow            uint   `mapstructure:"circuit_breaker_sleep_window"`
 	CircuitBreakerErrorPercentThreshold  uint   `mapstructure:"circuit_breaker_error_percent_threshold"`
 	CircuitBreakerLoggerEnabled          bool   `mapstructure:"circuit_breaker_logger_enabled"`
+}
+
+type redisData struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	ReadEndpoint  string `mapstructure:"read_endpoint"`
+	WriteEndpoint string `mapstructure:"write_endpoint"`
+	Password      string `mapstructure:"password"`
+	DB            int    `mapstructure:"db"`
+	InstanceTTL   uint   `mapstructure:"instance_ttl"` // 实例过期时间(秒),默认45
 }
 
 func (c *config) SetTargetAppName(s string) {
@@ -346,6 +356,48 @@ func (c *config) SetCircuitBreakerLoggerEnabled(b bool) {
 	}
 }
 
+func (c *config) SetRedisEnabled(b bool) {
+	if c._v != nil {
+		c._v.Set("redis.enabled", b)
+		c.Redis.Enabled = b
+	}
+}
+
+func (c *config) SetRedisReadEndpoint(readEndpoint string) {
+	if c._v != nil {
+		c._v.Set("redis.read_endpoint", readEndpoint)
+		c.Redis.ReadEndpoint = readEndpoint
+	}
+}
+
+func (c *config) SetRedisWriteEndpoint(writeEndpoint string) {
+	if c._v != nil {
+		c._v.Set("redis.write_endpoint", writeEndpoint)
+		c.Redis.WriteEndpoint = writeEndpoint
+	}
+}
+
+func (c *config) SetRedisPassword(s string) {
+	if c._v != nil {
+		c._v.Set("redis.password", s)
+		c.Redis.Password = s
+	}
+}
+
+func (c *config) SetRedisDB(i int) {
+	if c._v != nil {
+		c._v.Set("redis.db", i)
+		c.Redis.DB = i
+	}
+}
+
+func (c *config) SetRedisInstanceTTL(i uint) {
+	if c._v != nil {
+		c._v.Set("redis.instance_ttl", i)
+		c.Redis.InstanceTTL = i
+	}
+}
+
 // Read will load config settings from disk.
 // FIX #1: Builds into local variables first and only overwrites c._v, c.Target, etc.
 // on success, so a failed Read() doesn't destroy previously valid state.
@@ -405,7 +457,15 @@ func (c *config) Read() error {
 		"grpc.circuit_breaker_request_volume_threshold", 20).Default(
 		"grpc.circuit_breaker_sleep_window", 5000).Default(
 		"grpc.circuit_breaker_error_percent_threshold", 50).Default(
-		"grpc.circuit_breaker_logger_enabled", true)
+		"grpc.circuit_breaker_logger_enabled", true).Default(
+		"redis.enabled", false).Default(
+		"redis.read_endpoint", "localhost:6379").Default(
+		"redis.write_endpoint", "localhost:6379").Default(
+		"redis.password", "").Default(
+		"redis.db", 0).Default(
+		"redis.heartbeat_interval", 30).Default(
+		"redis.instance_ttl", 35).Default(
+		"redis.service_discovery_prefix", "grpc:services")
 
 	if ok, err := v.Init(); err != nil {
 		return err
@@ -432,6 +492,7 @@ func (c *config) Read() error {
 	c.Queues = tempCfg.Queues
 	c.Topics = tempCfg.Topics
 	c.Grpc = tempCfg.Grpc
+	c.Redis = tempCfg.Redis
 
 	return nil
 }
