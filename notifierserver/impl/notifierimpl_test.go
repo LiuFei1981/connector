@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/aldelo/connector/notifierserver/proto"
+	pb "github.com/LiuFei1981/connector/notifierserver/proto"
 )
 
 // ---------------------------------------------------------------------------

@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 	util "github.com/aldelo/common"
-	"github.com/aldelo/connector/client"
+	"github.com/LiuFei1981/connector/client"
 	"google.golang.org/grpc"
 	"log"
 	"time"
 
-	testpb "github.com/aldelo/connector/example/proto/test"
+	testpb "github.com/LiuFei1981/connector/example/proto/test"
 )
 
 type healthTest struct {

@@ -28,7 +28,7 @@ import (
 
 	util "github.com/aldelo/common"
 	"github.com/aldelo/common/wrapper/cloudmap"
-	"github.com/aldelo/connector/adapters/registry/sdoperationstatus"
+	"github.com/LiuFei1981/connector/adapters/registry/sdoperationstatus"
 	"github.com/aws/aws-sdk-go/aws"
 )
 

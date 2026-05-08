@@ -22,7 +22,7 @@ import (
 	ginw "github.com/aldelo/common/wrapper/gin"
 	"github.com/aldelo/common/wrapper/gin/ginbindtype"
 	"github.com/aldelo/common/wrapper/gin/ginhttpmethod"
-	ws "github.com/aldelo/connector/webserver"
+	ws "github.com/LiuFei1981/connector/webserver"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"log"

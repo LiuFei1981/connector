@@ -23,8 +23,8 @@ import (
 
 	util "github.com/aldelo/common"
 	"github.com/aldelo/common/wrapper/xray"
-	testpb "github.com/aldelo/connector/example/proto/test"
-	"github.com/aldelo/connector/service"
+	testpb "github.com/LiuFei1981/connector/example/proto/test"
+	"github.com/LiuFei1981/connector/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

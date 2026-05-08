@@ -57,10 +57,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/aldelo/connector/adapters/logger"
-	"github.com/aldelo/connector/adapters/metrics"
-	pb "github.com/aldelo/connector/example/proto/test"
-	"github.com/aldelo/connector/service/grpc_recovery"
+	"github.com/LiuFei1981/connector/adapters/logger"
+	"github.com/LiuFei1981/connector/adapters/metrics"
+	pb "github.com/LiuFei1981/connector/example/proto/test"
+	"github.com/LiuFei1981/connector/service/grpc_recovery"
 )
 
 const integrationBufSize = 1024 * 1024

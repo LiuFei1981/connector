@@ -18,8 +18,8 @@ package main
 
 import (
 	"github.com/aldelo/common/wrapper/systemd"
-	"github.com/aldelo/connector/notifierserver"
-	"github.com/aldelo/connector/service"
+	"github.com/LiuFei1981/connector/notifierserver"
+	"github.com/LiuFei1981/connector/service"
 	"log"
 )
 

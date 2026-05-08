@@ -29,7 +29,7 @@ import (
 
 	util "github.com/aldelo/common"
 	"github.com/aldelo/common/wrapper/xray"
-	notifierpb "github.com/aldelo/connector/notifierserver/proto"
+	notifierpb "github.com/LiuFei1981/connector/notifierserver/proto"
 	"google.golang.org/grpc"
 )
 

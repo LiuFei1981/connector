@@ -24,7 +24,7 @@ import (
 	util "github.com/aldelo/common"
 	"github.com/aldelo/common/wrapper/aws/awsregion"
 	"github.com/aldelo/common/wrapper/dynamodb"
-	"github.com/aldelo/connector/notifiergateway/config"
+	"github.com/LiuFei1981/connector/notifiergateway/config"
 	"github.com/aws/aws-sdk-go/aws"
 	ddb "github.com/aws/aws-sdk-go/service/dynamodb"
 )

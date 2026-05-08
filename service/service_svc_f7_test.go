@@ -34,7 +34,7 @@ package service
 
 import (
 	"context"
-	"github.com/aldelo/connector/internal/safego"
+	"github.com/LiuFei1981/connector/internal/safego"
 	"testing"
 	"time"
 )

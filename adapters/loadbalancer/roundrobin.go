@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"strings"
 
-	res "github.com/aldelo/connector/adapters/resolver"
+	res "github.com/LiuFei1981/connector/adapters/resolver"
 	_ "google.golang.org/grpc/balancer/roundrobin"
 )
 

@@ -63,7 +63,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aldelo/connector/client"
+	"github.com/LiuFei1981/connector/client"
 )
 
 // TestJoint_GracefulStopRacesClientClose runs Service.GracefulStop(),

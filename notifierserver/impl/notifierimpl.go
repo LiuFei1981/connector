@@ -29,9 +29,9 @@ import (
 	"github.com/aldelo/common/wrapper/dynamodb"
 	"github.com/aldelo/common/wrapper/sns"
 	"github.com/aldelo/common/wrapper/sns/snsprotocol"
-	"github.com/aldelo/connector/adapters/notification"
-	"github.com/aldelo/connector/notifierserver/config"
-	pb "github.com/aldelo/connector/notifierserver/proto"
+	"github.com/LiuFei1981/connector/adapters/notification"
+	"github.com/LiuFei1981/connector/notifierserver/config"
+	pb "github.com/LiuFei1981/connector/notifierserver/proto"
 )
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aldelo/connector/internal/safego"
+	"github.com/LiuFei1981/connector/internal/safego"
 )
 
 // -----------------------------------------------------------------------

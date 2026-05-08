@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	testpb "github.com/aldelo/connector/example/proto/test"
-	"github.com/aldelo/connector/internal/safego"
+	testpb "github.com/LiuFei1981/connector/example/proto/test"
+	"github.com/LiuFei1981/connector/internal/safego"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
