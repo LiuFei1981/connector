@@ -178,16 +178,6 @@ func (r *RedisServiceRegistry) register() error {
 		return fmt.Errorf("failed to set instance info: %w", err)
 	}
 
-	//check redis info
-	result, _, err := r.client.HASH.HGetAll(key)
-	if err != nil {
-		return fmt.Errorf("failed to get instances from redis: %w", err)
-	}
-
-	for instanceID, readData := range result {
-
-		println(fmt.Sprintf("reids data key:  instanceid:  data:", key, instanceID, readData))
-	}
 	return nil
 }
 

@@ -489,6 +489,10 @@ type Client struct {
 	webServerStop   chan struct{} // signal channel to stop web server
 	webServerMu     sync.Mutex
 	_origWebCleanUp func() // FIX #33: original user-provided cleanup, prevents closure accumulation
+
+	// Redis-based service discovery fallback (used by DialViaRedis)
+	_redisDiscovery *RedisServiceDiscovery
+	redisDiscMu     sync.Mutex
 }
 
 // resetClosedChLocked allocates a fresh closedCh for a new client
@@ -2649,6 +2653,14 @@ func (c *Client) Close() {
 		_ = conn.Close()
 	}
 
+	// clean up Redis service discovery (if used via DialViaRedis)
+	c.redisDiscMu.Lock()
+	if c._redisDiscovery != nil {
+		_ = c._redisDiscovery.Close()
+		c._redisDiscovery = nil
+	}
+	c.redisDiscMu.Unlock()
+
 	// clear circuit breaker and endpoints state to avoid reuse across dials
 	c.cbMu.Lock()
 	c._circuitBreakers = nil
@@ -3508,4 +3520,176 @@ func (c *Client) startWebServer(serveErr chan<- error) error {
 	})
 
 	return nil
+}
+
+// DialViaRedis is a fallback dial method that uses Redis-based service discovery
+// instead of AWS CloudMap. It is intended to be called when the primary Dial()
+// (which depends on CloudMap) fails due to AWS outages or restarts.
+//
+// This method:
+//   - Reads Redis config from the client YAML config
+//   - Discovers service endpoints from Redis (registered by servers via RedisServiceRegistry)
+//   - Tries endpoints in round-robin order until one connects successfully
+//   - Optionally waits for health check (if WaitForServerReady is set)
+//   - Stores the RedisServiceDiscovery instance for later use (e.g., removing failed endpoints)
+func (c *Client) DialViaRedis(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c == nil {
+		return fmt.Errorf("Client Object Nil")
+	}
+
+	c._lifecycleMu.Lock()
+	defer c._lifecycleMu.Unlock()
+
+	// Reset state for new dial
+	c.closed.Store(false)
+	c.closing.Store(false)
+	c.resetClosedCh()
+	c.setConnection(nil, "")
+
+	// Read config if not loaded
+	if c.getConfig() == nil {
+		if err := c.readConfig(); err != nil {
+			return err
+		}
+	}
+
+	cfg := c.getConfig()
+	if cfg == nil {
+		return fmt.Errorf("config not loaded")
+	}
+
+	// Validate Redis config
+	if !cfg.Redis.Enabled {
+		return fmt.Errorf("redis service discovery is not enabled in config")
+	}
+	if len(cfg.Redis.WriteEndpoint) == 0 {
+		return fmt.Errorf("redis write endpoint not configured")
+	}
+
+	serviceName := cfg.Target.ServiceName
+	if len(serviceName) == 0 {
+		return fmt.Errorf("target service_name not configured")
+	}
+
+	z := c.ZLog()
+	logPrintf := func(msg string, args ...interface{}) {
+		if z != nil {
+			z.Printf(msg, args...)
+		} else {
+			log.Printf(msg, args...)
+		}
+	}
+	logErrorf := func(msg string, args ...interface{}) {
+		if z != nil {
+			z.Errorf(msg, args...)
+		} else {
+			log.Printf(msg, args...)
+		}
+	}
+
+	logPrintf("[DialViaRedis] Starting Redis-based service discovery for '%s'", serviceName)
+
+	// Create Redis service discovery instance
+	rsd, err := NewRedisServiceDiscovery(
+		cfg.Redis.WriteEndpoint,
+		cfg.Redis.ReadEndpoint,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		serviceName,
+		cfg.Redis.InstanceTTL,
+	)
+	if err != nil {
+		return fmt.Errorf("[DialViaRedis] failed to create Redis service discovery: %w", err)
+	}
+
+	// Refresh instances from Redis
+	if err := rsd.Refresh(); err != nil {
+		return fmt.Errorf("[DialViaRedis] failed to refresh instances: %w", err)
+	}
+
+	instanceCount := rsd.GetInstanceCount()
+	if instanceCount == 0 {
+		return fmt.Errorf("[DialViaRedis] no available instances for service '%s'", serviceName)
+	}
+
+	logPrintf("[DialViaRedis] Found %d instance(s) for '%s'", instanceCount, serviceName)
+
+	// Build dial options (passthrough, no load balancer policy)
+	opts, err := c.buildDialOptions("")
+	if err != nil {
+		return fmt.Errorf("[DialViaRedis] build dial options failed: %w", err)
+	}
+
+	// Try connecting to instances in round-robin order
+	dialSec := cfg.Grpc.DialMinConnectTimeout
+	if dialSec == 0 {
+		dialSec = defaultDialTimeoutSeconds
+	}
+
+	var lastErr error
+	maxAttempts := instanceCount
+	for i := 0; i < maxAttempts; i++ {
+		addr, err := rsd.GetNextInstance()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		target := fmt.Sprintf("%s:///%s", "passthrough", addr)
+		logPrintf("[DialViaRedis] Attempting to connect to %s (%d/%d)", addr, i+1, maxAttempts)
+
+		dialCtx, dialCancel := context.WithTimeout(ctx, time.Duration(dialSec)*time.Second)
+		conn, dialErr := muxDialContext(dialCtx, target, opts...)
+		dialCancel()
+
+		if dialErr != nil {
+			logErrorf("[DialViaRedis] Dial to %s failed: %v", addr, dialErr)
+			_ = rsd.RemoveFailedInstance(addr)
+			lastErr = dialErr
+			continue
+		}
+
+		// Connection established
+		c.setConnection(conn, target)
+
+		// Optional health check
+		if c.WaitForServerReady {
+			healthCtx, healthCancel := context.WithTimeout(ctx, time.Duration(dialSec)*time.Second)
+			if e := c.waitForEndpointReady(healthCtx, time.Duration(dialSec)*time.Second); e != nil {
+				healthCancel()
+				logErrorf("[DialViaRedis] Health check failed for %s: %v", addr, e)
+				if closedConn := c.clearConnection(); closedConn != nil {
+					_ = closedConn.Close()
+				}
+				_ = rsd.RemoveFailedInstance(addr)
+				lastErr = e
+				continue
+			}
+			healthCancel()
+		}
+
+		// Success — store the discovery instance
+		c.redisDiscMu.Lock()
+		c._redisDiscovery = rsd
+		c.redisDiscMu.Unlock()
+
+		logPrintf("[DialViaRedis] Successfully connected to %s", addr)
+		return nil
+	}
+
+	return fmt.Errorf("[DialViaRedis] all instances failed for service '%s': %w", serviceName, lastErr)
+}
+
+// RedisDiscovery returns the current Redis service discovery instance (if any).
+// Can be used by callers to manually remove failed instances or refresh.
+func (c *Client) RedisDiscovery() *RedisServiceDiscovery {
+	if c == nil {
+		return nil
+	}
+	c.redisDiscMu.Lock()
+	defer c.redisDiscMu.Unlock()
+	return c._redisDiscovery
 }
