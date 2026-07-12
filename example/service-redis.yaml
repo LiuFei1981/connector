@@ -34,16 +34,16 @@ grpc:
   max_concurrent_streams: 100
   rate_limit_per_second: 1000
 
-# Redis 服务发现配置
+# Redis service discovery config
 redis:
-  enabled: true                                    # 启用 Redis 服务发现
-  endpoints:                                        # Redis 端点列表
+  enabled: true                                    # enable Redis service discovery
+  endpoints:                                        # Redis endpoint list
     - "localhost:6379"
     #- "redis-1:6379"
     #- "redis-2:6379"
-  password: ""                                      # Redis 密码（如果需要）
-  db: 0                                             # Redis 数据库编号
-  heartbeat_interval: 30                            # 心跳间隔（秒）
-  instance_ttl: 35                                  # 实例过期时间（秒）
-  service_discovery_prefix: "grpc:services"         # Redis key 前缀
+  password: ""                                      # Redis password (if required)
+  db: 0                                             # Redis database number
+  heartbeat_interval: 30                            # heartbeat interval (seconds)
+  instance_ttl: 35                                  # instance TTL (seconds)
+  service_discovery_prefix: "grpc:services"         # Redis key prefix
 

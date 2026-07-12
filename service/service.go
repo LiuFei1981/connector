@@ -1791,7 +1791,7 @@ func (s *Service) registerSd(ip string, port uint) error {
 		return fmt.Errorf("Register Instance Failed: %w", err)
 	}
 
-	// 启动 Redis 服务注册（如果启用）
+	// start Redis service registration (if enabled)
 	if cfg.Redis.Enabled {
 		redisRegistry, err := NewRedisServiceRegistry(&cfg.Redis, cfg.Service.Name, ip, port)
 		if err != nil {
@@ -2641,7 +2641,7 @@ func (s *Service) doDeregisterInstance() error {
 	redisRegistry := s._redisRegistry
 	s._mu.RUnlock()
 
-	// 停止 Redis 服务注册（如果启用）
+	// stop Redis service registration (if enabled)
 	if redisRegistry != nil {
 		if err := redisRegistry.Stop(); err != nil {
 			log.Printf("!!! Redis Service Registry Stop Failed: %v !!!", err)

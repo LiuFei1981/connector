@@ -2,9 +2,9 @@
 
 target:
   app_name: "connector.client"
-  service_discovery_type: "srv"              # 服务发现类型: srv, a, direct
-  direct_connect_ip_port: ""                 # direct 模式使用
-  service_name: "my-grpc-service"            # 要连接的服务名称
+  service_discovery_type: "srv"              # service discovery type: srv, a, direct
+  direct_connect_ip_port: ""                 # used in direct mode
+  service_name: "my-grpc-service"            # name of the service to connect to
   namespace_name: "default"
   region: "us-east-1"
   instance_version: ""
@@ -24,12 +24,12 @@ grpc:
   keepalive_permit_without_stream: true
   circuit_breaker_enabled: false
 
-# Redis 服务发现配置（备用方案）
+# Redis service discovery config (fallback)
 redis:
-  enabled: true                              # 启用 Redis 服务发现
-  endpoints:                                  # Redis 端点列表
+  enabled: true                              # enable Redis service discovery
+  endpoints:                                  # Redis endpoint list
     - "localhost:6379"
-  password: ""                                # Redis 密码
-  db: 0                                       # Redis 数据库编号
-  instance_ttl: 45                            # 实例过期时间（秒），应该大于服务端的 heartbeat_interval
+  password: ""                                # Redis password
+  db: 0                                       # Redis database number
+  instance_ttl: 45                            # instance TTL (seconds); should be greater than the server's heartbeat_interval
 

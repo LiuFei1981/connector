@@ -26,7 +26,7 @@ import (
 	"github.com/aldelo/common/wrapper/redis"
 )
 
-// RedisServiceRegistry 服务注册器，负责将 gRPC 服务实例注册到 Redis
+// RedisServiceRegistry is the service registry that registers gRPC service instances into Redis
 type RedisServiceRegistry struct {
 	client          *redis.Redis
 	serviceName     string
@@ -38,14 +38,14 @@ type RedisServiceRegistry struct {
 	isRunning       bool
 }
 
-// RedisInstanceInfo Redis 中存储的实例信息
+// RedisInstanceInfo is the instance info stored in Redis
 type RedisInstanceInfo struct {
 	IP         string `json:"ip"`
 	Port       uint   `json:"port"`
 	LastUpdate int64  `json:"lastUpdate"`
 }
 
-// NewRedisServiceRegistry 创建 Redis 服务注册器
+// NewRedisServiceRegistry creates a Redis service registry
 func NewRedisServiceRegistry(cfg *redisData, serviceName string, ip string, port uint) (*RedisServiceRegistry, error) {
 	if !cfg.Enabled {
 		return nil, nil
@@ -59,7 +59,7 @@ func NewRedisServiceRegistry(cfg *redisData, serviceName string, ip string, port
 		cfg.ReadEndpoint = cfg.WriteEndpoint
 	}
 
-	// 创建 Redis 客户端
+	// create the Redis client
 	writerEndpoint := cfg.WriteEndpoint
 	readerEndpoint := cfg.ReadEndpoint
 
@@ -68,17 +68,17 @@ func NewRedisServiceRegistry(cfg *redisData, serviceName string, ip string, port
 		AwsRedisReaderEndpoint: readerEndpoint,
 	}
 
-	// 连接 Redis
+	// connect to Redis
 	if err := redisClient.Connect(); err != nil {
 		return nil, fmt.Errorf("redis connection failed: %w", err)
 	}
 
-	// 生成实例 ULID
+	// generate the instance ULID
 	instanceID := util.NewULID()
 
 	heartbeatInterval := cfg.HeartbeatInterval
 	if heartbeatInterval == 0 {
-		heartbeatInterval = 30 // 默认 30 秒
+		heartbeatInterval = 30 // default 30 seconds
 	}
 
 	return &RedisServiceRegistry{
@@ -93,7 +93,7 @@ func NewRedisServiceRegistry(cfg *redisData, serviceName string, ip string, port
 	}, nil
 }
 
-// Start 启动心跳注册
+// Start begins heartbeat registration
 func (r *RedisServiceRegistry) Start() error {
 	if r == nil {
 		return nil
@@ -103,12 +103,12 @@ func (r *RedisServiceRegistry) Start() error {
 		return fmt.Errorf("registry already running")
 	}
 
-	// 立即注册一次
+	// register once immediately
 	if err := r.register(); err != nil {
 		return fmt.Errorf("initial registration failed: %w", err)
 	}
 
-	// 启动心跳 goroutine
+	// start the heartbeat goroutine
 	r.isRunning = true
 	go r.heartbeatLoop()
 
@@ -118,7 +118,7 @@ func (r *RedisServiceRegistry) Start() error {
 	return nil
 }
 
-// Stop 停止心跳并注销实例
+// Stop stops the heartbeat and deregisters the instance
 func (r *RedisServiceRegistry) Stop() error {
 	if r == nil {
 		return nil
@@ -128,12 +128,12 @@ func (r *RedisServiceRegistry) Stop() error {
 		return nil
 	}
 
-	// 停止心跳
+	// stop the heartbeat
 	close(r.stopChan)
 	r.heartbeatTicker.Stop()
 	r.isRunning = false
 
-	// 从 Redis 删除实例信息
+	// delete instance info from Redis
 	if err := r.deregister(); err != nil {
 		log.Printf("[Redis Discovery] Failed to deregister instance %s: %v", r.instanceID, err)
 		return err
@@ -144,7 +144,7 @@ func (r *RedisServiceRegistry) Stop() error {
 	return nil
 }
 
-// heartbeatLoop 心跳循环
+// heartbeatLoop is the heartbeat loop
 func (r *RedisServiceRegistry) heartbeatLoop() {
 	for {
 		select {
@@ -158,7 +158,7 @@ func (r *RedisServiceRegistry) heartbeatLoop() {
 	}
 }
 
-// register 注册或更新实例信息到 Redis
+// register registers or updates instance info in Redis
 func (r *RedisServiceRegistry) register() error {
 	key := r.getRedisKey()
 
@@ -173,7 +173,7 @@ func (r *RedisServiceRegistry) register() error {
 		return fmt.Errorf("failed to marshal instance info: %w", err)
 	}
 
-	// 使用 HASH.HSet 存储实例信息
+	// use HASH.HSet to store instance info
 	if err := r.client.HASH.HSet(key, r.instanceID, string(data)); err != nil {
 		return fmt.Errorf("failed to set instance info: %w", err)
 	}
@@ -181,11 +181,11 @@ func (r *RedisServiceRegistry) register() error {
 	return nil
 }
 
-// deregister 从 Redis 注销实例
+// deregister removes the instance from Redis
 func (r *RedisServiceRegistry) deregister() error {
 	key := r.getRedisKey()
 
-	// 使用 HASH.HDel 删除实例信息
+	// use HASH.HDel to delete instance info
 	if _, err := r.client.HASH.HDel(key, r.instanceID); err != nil {
 		return fmt.Errorf("failed to delete instance info: %w", err)
 	}
@@ -193,12 +193,12 @@ func (r *RedisServiceRegistry) deregister() error {
 	return nil
 }
 
-// getRedisKey 获取 Redis key
+// getRedisKey returns the Redis key
 func (r *RedisServiceRegistry) getRedisKey() string {
 	return fmt.Sprintf("grpc:services:%s", r.serviceName)
 }
 
-// GetInstanceID 获取实例 ID
+// GetInstanceID returns the instance ID
 func (r *RedisServiceRegistry) GetInstanceID() string {
 	if r == nil {
 		return ""
@@ -206,7 +206,7 @@ func (r *RedisServiceRegistry) GetInstanceID() string {
 	return r.instanceID
 }
 
-// GetServiceName 获取服务名称
+// GetServiceName returns the service name
 func (r *RedisServiceRegistry) GetServiceName() string {
 	if r == nil {
 		return ""

@@ -27,24 +27,24 @@ import (
 	"github.com/aldelo/common/wrapper/redis"
 )
 
-// RedisServiceDiscovery 客户端 Redis 服务发现
+// RedisServiceDiscovery is the client-side Redis service discovery
 type RedisServiceDiscovery struct {
 	client        *redis.Redis
 	serviceName   string
-	instanceTTL   int64 // 实例过期时间(秒)
+	instanceTTL   int64 // instance TTL (seconds)
 	instances     []string
 	instancesLock sync.RWMutex
 	currentIndex  uint32
 }
 
-// RedisInstanceInfo Redis 中存储的实例信息
+// RedisInstanceInfo is the instance info stored in Redis
 type RedisInstanceInfo struct {
 	IP         string `json:"ip"`
 	Port       uint   `json:"port"`
 	LastUpdate int64  `json:"lastUpdate"`
 }
 
-// NewRedisServiceDiscovery 创建 Redis 服务发现客户端
+// NewRedisServiceDiscovery creates a Redis service-discovery client
 func NewRedisServiceDiscovery(writeEndpoint, readEndpoint string, password string, db int, serviceName string, instanceTTL uint) (*RedisServiceDiscovery, error) {
 	if len(writeEndpoint) == 0 {
 		return nil, fmt.Errorf("redis endpoints not configured")
@@ -62,14 +62,14 @@ func NewRedisServiceDiscovery(writeEndpoint, readEndpoint string, password strin
 		AwsRedisReaderEndpoint: readerEndpoint,
 	}
 
-	// 连接 Redis
+	// connect to Redis
 	if err := redisClient.Connect(); err != nil {
 		return nil, fmt.Errorf("redis connection failed: %w", err)
 	}
 
 	ttl := int64(instanceTTL)
 	if ttl == 0 {
-		ttl = 45 // 默认 45 秒
+		ttl = 45 // default 45 seconds
 	}
 
 	return &RedisServiceDiscovery{
@@ -80,14 +80,14 @@ func NewRedisServiceDiscovery(writeEndpoint, readEndpoint string, password strin
 	}, nil
 }
 
-// GetNextInstance 获取下一个可用实例（轮询）
+// GetNextInstance returns the next available instance (round-robin)
 func (d *RedisServiceDiscovery) GetNextInstance() (string, error) {
 	d.instancesLock.RLock()
 	instanceCount := len(d.instances)
 	d.instancesLock.RUnlock()
 
 	if instanceCount == 0 {
-		// 刷新实例列表
+		// refresh the instance list
 		if err := d.Refresh(); err != nil {
 			return "", fmt.Errorf("failed to refresh instances: %w", err)
 		}
@@ -101,7 +101,7 @@ func (d *RedisServiceDiscovery) GetNextInstance() (string, error) {
 		}
 	}
 
-	// 原子递增并获取实例
+	// atomically increment and get the instance
 	index := atomic.AddUint32(&d.currentIndex, 1)
 
 	d.instancesLock.RLock()
@@ -111,11 +111,11 @@ func (d *RedisServiceDiscovery) GetNextInstance() (string, error) {
 	return instance, nil
 }
 
-// Refresh 刷新实例列表
+// Refresh refreshes the instance list
 func (d *RedisServiceDiscovery) Refresh() error {
 	key := fmt.Sprintf("grpc:services:%s", d.serviceName)
 
-	// 从 Redis 获取所有实例
+	// get all instances from Redis
 	result, _, err := d.client.HASH.HGetAll(key)
 	if err != nil {
 		return fmt.Errorf("failed to get instances from redis: %w", err)
@@ -124,7 +124,7 @@ func (d *RedisServiceDiscovery) Refresh() error {
 	now := time.Now().Unix()
 	var validInstances []string
 
-	// 解析并过滤有效实例
+	// parse and filter valid instances
 	for instanceID, data := range result {
 		var info RedisInstanceInfo
 
@@ -133,11 +133,11 @@ func (d *RedisServiceDiscovery) Refresh() error {
 			continue
 		}
 
-		// 检查是否过期
+		// check whether expired
 		if now-info.LastUpdate > d.instanceTTL {
 			log.Printf("[Redis Discovery] Instance %s expired (lastUpdate: %d, now: %d, ttl: %d)",
 				instanceID, info.LastUpdate, now, d.instanceTTL)
-			// 客户端主动删除过期实例
+			// client proactively deletes expired instances
 			go d.removeInstance(instanceID)
 			continue
 		}
@@ -154,9 +154,9 @@ func (d *RedisServiceDiscovery) Refresh() error {
 	return nil
 }
 
-// RemoveFailedInstance 移除连接失败的实例
+// RemoveFailedInstance removes an instance that failed to connect
 func (d *RedisServiceDiscovery) RemoveFailedInstance(addr string) error {
-	// 从本地缓存移除
+	// remove from local cache
 	d.instancesLock.Lock()
 	for i, instance := range d.instances {
 		if instance == addr {
@@ -167,14 +167,14 @@ func (d *RedisServiceDiscovery) RemoveFailedInstance(addr string) error {
 	}
 	d.instancesLock.Unlock()
 
-	// 从 Redis 查找并删除对应的实例
+	// find and delete the matching instance from Redis
 	key := fmt.Sprintf("grpc:services:%s", d.serviceName)
 	result, _, err := d.client.HASH.HGetAll(key)
 	if err != nil {
 		return fmt.Errorf("failed to get instances from redis: %w", err)
 	}
 
-	// 查找匹配的 instanceID
+	// find the matching instanceID
 	for instanceID, data := range result {
 		var info RedisInstanceInfo
 		if err := json.Unmarshal([]byte(data), &info); err != nil {
@@ -194,7 +194,7 @@ func (d *RedisServiceDiscovery) RemoveFailedInstance(addr string) error {
 	return nil
 }
 
-// removeInstance 从 Redis 删除过期实例（后台执行）
+// removeInstance deletes expired instances from Redis (runs in background)
 func (d *RedisServiceDiscovery) removeInstance(instanceID string) {
 	key := fmt.Sprintf("grpc:services:%s", d.serviceName)
 
@@ -205,14 +205,14 @@ func (d *RedisServiceDiscovery) removeInstance(instanceID string) {
 	}
 }
 
-// GetInstanceCount 获取当前可用实例数量
+// GetInstanceCount returns the current number of available instances
 func (d *RedisServiceDiscovery) GetInstanceCount() int {
 	d.instancesLock.RLock()
 	defer d.instancesLock.RUnlock()
 	return len(d.instances)
 }
 
-// Close 关闭 Redis 连接
+// Close closes the Redis connection
 func (d *RedisServiceDiscovery) Close() error {
 	if d.client != nil {
 		return nil

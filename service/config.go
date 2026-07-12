@@ -134,9 +134,9 @@ type redisData struct {
 	WriteEndpoint          string `mapstructure:"write_endpoint"`
 	Password               string `mapstructure:"password"`
 	DB                     int    `mapstructure:"db"`
-	HeartbeatInterval      uint   `mapstructure:"heartbeat_interval"`       // 心跳间隔(秒),默认30
-	InstanceTTL            uint   `mapstructure:"instance_ttl"`             // 实例过期时间(秒),默认35
-	ServiceDiscoveryPrefix string `mapstructure:"service_discovery_prefix"` // Redis key前缀,默认"grpc:services"
+	HeartbeatInterval      uint   `mapstructure:"heartbeat_interval"`       // heartbeat interval (seconds), default 30
+	InstanceTTL            uint   `mapstructure:"instance_ttl"`             // instance TTL (seconds), default 35
+	ServiceDiscoveryPrefix string `mapstructure:"service_discovery_prefix"` // Redis key prefix, default "grpc:services"
 }
 
 func (c *config) SetTargetAppName(s string) {
