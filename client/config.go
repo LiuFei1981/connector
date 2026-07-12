@@ -94,7 +94,7 @@ type redisData struct {
 	WriteEndpoint string `mapstructure:"write_endpoint"`
 	Password      string `mapstructure:"password"`
 	DB            int    `mapstructure:"db"`
-	InstanceTTL   uint   `mapstructure:"instance_ttl"` // 实例过期时间(秒),默认45
+	InstanceTTL   uint   `mapstructure:"instance_ttl"` // instance TTL (seconds), default 45
 }
 
 func (c *config) SetTargetAppName(s string) {

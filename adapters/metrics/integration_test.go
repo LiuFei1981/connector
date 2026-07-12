@@ -237,7 +237,7 @@ func TestIntegration_Unary_HappyPath(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestIntegration_Unary_HandlerErrorWithNonASCII(t *testing.T) {
-	// 日本語 + a long tail. Any corruption at a rune boundary would
+	// Japanese ("日本語") + a long tail. Any corruption at a rune boundary would
 	// either (a) panic inside zap's JSON encoder if the logger were
 	// active, or (b) surface as a status-message round-trip mismatch.
 	// We assert the latter here because the logger is nil. The rune
